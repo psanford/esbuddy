@@ -15,15 +15,17 @@ import (
 )
 
 var (
-	url      = flag.String("url", "http://localhost:9200", "Elasticsearch URL")
-	index    = flag.String("index", "", "Elasticsearch index name")
-	typ      = flag.String("type", "", "Elasticsearch type name")
-	size     = flag.Int("size", 10000, "Slice of documents to get per scroll")
-	sniff    = flag.Bool("sniff", false, "Enable or disable sniffing")
-	queryStr = flag.String("query", "", "Query string")
-	since    = flag.String("since", "15m", "Start time of query")
-	until    = flag.String("until", "0m", "End time of query")
-	count    = flag.Bool("count", false, "Return count of results only")
+	url        = flag.String("url", "http://localhost:9200", "Elasticsearch URL")
+	index      = flag.String("index", "", "Elasticsearch index name")
+	typ        = flag.String("type", "", "Elasticsearch type name")
+	size       = flag.Int("size", 10000, "Slice of documents to get per scroll")
+	sniff      = flag.Bool("sniff", false, "Enable or disable sniffing")
+	queryStr   = flag.String("query", "", "Query string")
+	since      = flag.String("since", "15m", "Start time of query")
+	until      = flag.String("until", "0m", "End time of query")
+	countLimit = flag.Int("count", 0, "Max count of results to return (0 is unlimited)")
+	countOnly  = flag.Bool("count_only", false, "Show hit count only")
+	ordered    = flag.Bool("ordered", true, "Query for ordered results")
 )
 
 func main() {
@@ -70,6 +72,10 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if *countLimit > 0 && *countLimit < *size {
+		*size = *countLimit
+	}
+
 	ctx := context.Background()
 
 	query :=
@@ -78,7 +84,7 @@ func main() {
 			elastic.NewRangeQuery("@timestamp").From(startTime).To(endTime),
 		)
 
-	if *count {
+	if *countOnly {
 		svc := client.Count(*index).Query(query)
 		resp, err := svc.Do(ctx)
 		if err != nil {
@@ -89,7 +95,15 @@ func main() {
 	}
 
 	svc := client.Scroll(*index).Query(query).Size(*size)
+	if *ordered {
+		sorter := elastic.NewFieldSort("@timestamp").Desc()
+		svc = svc.SortBy(sorter)
+	}
 
+	defer svc.Clear(ctx)
+
+	var count int
+OUTER:
 	for {
 		res, err := svc.Do(ctx)
 		if err == io.EOF {
@@ -99,7 +113,12 @@ func main() {
 			panic(err)
 		}
 		for _, searchHit := range res.Hits.Hits {
+			count++
 			fmt.Printf("%s\n", searchHit.Source)
+			if *countLimit > 0 && count >= *countLimit {
+				break OUTER
+			}
+
 		}
 	}
 }
