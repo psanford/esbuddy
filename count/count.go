@@ -16,6 +16,8 @@ import (
 var (
 	urlFlag   string
 	indexFlag string
+	fieldFlag string
+	limitFlag int
 
 	sniff bool
 	since string
@@ -33,6 +35,8 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVarP(&indexFlag, "index", "", "", "Index pattern")
 	cmd.Flags().StringVarP(&since, "since", "", "15m", "Start time of query")
 	cmd.Flags().StringVarP(&until, "until", "", "0m", "End time of query")
+	cmd.Flags().StringVarP(&fieldFlag, "field", "", "", "Count by field")
+	cmd.Flags().IntVarP(&limitFlag, "limit", "", 100, "Max limit of results to return")
 
 	cmd.Flags().BoolVarP(&sniff, "sniff", "", false, "Enable sniffing")
 
@@ -42,7 +46,7 @@ func Command() *cobra.Command {
 
 func searchAction(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		log.Fatalf("Usage: search <query>")
+		log.Fatalf("Usage: count <query>")
 	}
 
 	queryStr := strings.Join(args, " ")
@@ -84,7 +88,12 @@ func searchAction(cmd *cobra.Command, args []string) {
 	}
 
 	log.Printf("connect: %s start=%s end=%s", urlFlag, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
-	client, err := elastic.NewClient(elastic.SetURL(urlFlag), elastic.SetSniff(sniff))
+	client, err := elastic.NewClient(
+		elastic.SetURL(urlFlag),
+		elastic.SetSniff(sniff),
+		// elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)),
+		// elastic.SetInfoLog(log.New(os.Stderr, "ELASTIC", log.LstdFlags)),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -97,11 +106,30 @@ func searchAction(cmd *cobra.Command, args []string) {
 			elastic.NewRangeQuery("@timestamp").From(startTime).To(endTime),
 		)
 
-	svc := client.Count(indexFlag).Query(query)
-	resp, err := svc.Do(ctx)
+	if fieldFlag == "" {
+		svc := client.Count(indexFlag).Query(query)
+		resp, err := svc.Do(ctx)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("hits: %d\n", resp)
+		return
+	}
+
+	agg := elastic.NewTermsAggregation().Field(fieldFlag)
+	agg.Size(limitFlag)
+	svc := client.Search(indexFlag).Query(query).Aggregation(fieldFlag, agg)
+
+	res, err := svc.Do(ctx)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("hits: %d\n", resp)
-	return
+
+	ranges, _ := res.Aggregations.Terms(fieldFlag)
+
+	for _, res := range ranges.Buckets {
+		name := res.Key.(string)
+		count := res.DocCount
+		fmt.Printf("%50s %d\n", name, count)
+	}
 }
