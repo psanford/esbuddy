@@ -3,6 +3,7 @@ package count
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"strings"
 	"time"
@@ -19,9 +20,10 @@ var (
 	fieldFlag string
 	limitFlag int
 
-	sniff bool
-	since string
-	until string
+	sniff         bool
+	since         string
+	until         string
+	queryFromFile string
 )
 
 func Command() *cobra.Command {
@@ -31,10 +33,11 @@ func Command() *cobra.Command {
 		Run:   searchAction,
 	}
 
-	cmd.Flags().StringVarP(&urlFlag, "url", "", "http://localhost:9200", "Elasticsearch URL")
+	cmd.Flags().StringVarP(&urlFlag, "url", "", "", "Elasticsearch URL")
 	cmd.Flags().StringVarP(&indexFlag, "index", "", "", "Index pattern")
 	cmd.Flags().StringVarP(&since, "since", "", "15m", "Start time of query")
 	cmd.Flags().StringVarP(&until, "until", "", "0m", "End time of query")
+	cmd.Flags().StringVarP(&queryFromFile, "query-file", "", "", "Read query from file")
 	cmd.Flags().StringVarP(&fieldFlag, "field", "", "", "Count by field")
 	cmd.Flags().IntVarP(&limitFlag, "limit", "", 100, "Max limit of results to return")
 
@@ -45,11 +48,20 @@ func Command() *cobra.Command {
 }
 
 func searchAction(cmd *cobra.Command, args []string) {
-	if len(args) < 1 {
-		log.Fatalf("Usage: count <query>")
-	}
+	var queryStr string
+	if queryFromFile != "" {
+		queryB, err := ioutil.ReadFile(queryFromFile)
+		if err != nil {
+			log.Fatalf("read file err: %s", err)
+		}
+		queryStr = string(queryB)
+	} else {
+		if len(args) < 1 {
+			log.Fatalf("Usage: search <query>")
+		}
 
-	queryStr := strings.Join(args, " ")
+		queryStr = strings.Join(args, " ")
+	}
 
 	conf := config.LoadConfig()
 	if indexFlag == "" {
