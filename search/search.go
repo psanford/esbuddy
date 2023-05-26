@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"strings"
 	"time"
@@ -18,12 +19,13 @@ var (
 	urlFlag   string
 	indexFlag string
 
-	size      int
-	sniff     bool
-	since     string
-	until     string
-	limitFlag int
-	ordered   bool
+	size          int
+	sniff         bool
+	since         string
+	until         string
+	limitFlag     int
+	ordered       bool
+	queryFromFile string
 )
 
 func Command() *cobra.Command {
@@ -33,27 +35,37 @@ func Command() *cobra.Command {
 		Run:   searchAction,
 	}
 
-	cmd.Flags().StringVarP(&urlFlag, "url", "", "http://localhost:9200", "Elasticsearch URL")
+	cmd.Flags().StringVarP(&urlFlag, "url", "", "", "Elasticsearch URL")
 	cmd.Flags().StringVarP(&indexFlag, "index", "", "", "Index pattern")
 	cmd.Flags().StringVarP(&since, "since", "", "15m", "Start time of query")
 	cmd.Flags().StringVarP(&until, "until", "", "0m", "End time of query")
+	cmd.Flags().StringVarP(&queryFromFile, "query-file", "", "", "Read query from file")
 
 	cmd.Flags().IntVarP(&size, "size", "", 10000, "Slice of documents to get per scroll")
 	cmd.Flags().IntVarP(&limitFlag, "limit", "", 0, "Max limit of results to return (0 is unlimited)")
 
 	cmd.Flags().BoolVarP(&ordered, "ordered", "", true, "Query ordered by time desc")
-	cmd.Flags().BoolVarP(&sniff, "sniff", "", false, "Enable sniffing")
+	cmd.Flags().BoolVarP(&sniff, "sniff", "", false, "Enable es host detection sniffing")
 
 	return &cmd
 
 }
 
 func searchAction(cmd *cobra.Command, args []string) {
-	if len(args) < 1 {
-		log.Fatalf("Usage: search <query>")
-	}
+	var queryStr string
+	if queryFromFile != "" {
+		queryB, err := ioutil.ReadFile(queryFromFile)
+		if err != nil {
+			log.Fatalf("read file err: %s", err)
+		}
+		queryStr = string(queryB)
+	} else {
+		if len(args) < 1 {
+			log.Fatalf("Usage: search <query>")
+		}
 
-	queryStr := strings.Join(args, " ")
+		queryStr = strings.Join(args, " ")
+	}
 
 	conf := config.LoadConfig()
 	if indexFlag == "" {

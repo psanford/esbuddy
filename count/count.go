@@ -38,7 +38,7 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVarP(&fieldFlag, "field", "", "", "Count by field")
 	cmd.Flags().IntVarP(&limitFlag, "limit", "", 100, "Max limit of results to return")
 
-	cmd.Flags().BoolVarP(&sniff, "sniff", "", false, "Enable sniffing")
+	cmd.Flags().BoolVarP(&sniff, "sniff", "", false, "Enable es host detection sniffing")
 
 	return &cmd
 
@@ -91,8 +91,9 @@ func searchAction(cmd *cobra.Command, args []string) {
 	client, err := elastic.NewClient(
 		elastic.SetURL(urlFlag),
 		elastic.SetSniff(sniff),
-		// elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)),
-		// elastic.SetInfoLog(log.New(os.Stderr, "ELASTIC", log.LstdFlags)),
+		// elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC-Error ", log.LstdFlags)),
+		// elastic.SetInfoLog(log.New(os.Stderr, "ELASTIC-Info ", log.LstdFlags)),
+		// elastic.SetTraceLog(log.New(os.Stderr, "ELASTIC-Trace ", log.LstdFlags)),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -100,6 +101,7 @@ func searchAction(cmd *cobra.Command, args []string) {
 
 	ctx := context.Background()
 
+	_ = queryStr
 	query :=
 		elastic.NewBoolQuery().Must(
 			elastic.NewQueryStringQuery(queryStr),
@@ -125,7 +127,10 @@ func searchAction(cmd *cobra.Command, args []string) {
 		panic(err)
 	}
 
-	ranges, _ := res.Aggregations.Terms(fieldFlag)
+	ranges, ok := res.Aggregations.Terms(fieldFlag)
+	if !ok {
+		log.Fatalf("No buckets, maybe type adding a .raw?")
+	}
 
 	for _, res := range ranges.Buckets {
 		name := res.Key.(string)
